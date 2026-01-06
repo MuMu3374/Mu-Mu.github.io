@@ -171,6 +171,7 @@
         <div class="header">
             <h1>MAGIC CHRISTMAS TREE</h1>
             <div id="status-pill" class="status-pill">State: Tree Form</div>
+            <div id="hand-rot" class="status-pill" style="margin-top:8px; font-size:11px; letter-spacing:1px; padding:6px 12px;">Rot: —</div>
         </div>
 
         <div class="controls-panel">
@@ -224,6 +225,11 @@
         let currentState = STATE.TREE;
         let isHandDetected = false;
         let handPosition = { x: 0, y: 0 };
+        // 手部旋转（弧度）与平滑值
+        let rawHandRotation = 0;
+        let smoothedHandRotation = 0;
+        let rawHandTilt = 0;
+        let smoothedHandTilt = 0;
         // 新增：全局序列计数器
         let globalPhotoCounter = 0;
         
@@ -520,6 +526,25 @@
                 handPosition.x = (lm[0].x - 0.5) * 2;
                 handPosition.y = (lm[0].y - 0.5) * 2;
 
+                // 计算旋转：使用手掌横向向量（index_mcp -> pinky_mcp）作为掌面旋转
+                const indexMCP = lm[5];
+                const pinkyMCP = lm[17];
+                const palmDx = pinkyMCP.x - indexMCP.x;
+                const palmDy = pinkyMCP.y - indexMCP.y;
+                let palmAngle = Math.atan2(palmDy, palmDx); // 弧度
+                // 镜像修正（video 使用 scaleX(-1)）
+                rawHandRotation = -palmAngle;
+
+                // 计算倾斜：wrist -> middle_mcp
+                const wrist = lm[0];
+                const middleMCP = lm[9];
+                let tilt = Math.atan2(middleMCP.y - wrist.y, middleMCP.x - wrist.x);
+                rawHandTilt = -tilt;
+
+                // 显示为度数（用于 UI）
+                const deg = Math.round(rawHandRotation * 180 / Math.PI);
+                document.getElementById('hand-rot').innerText = `Rot: ${deg}°`;
+
                 const indexTip = lm[8];
                 const thumbTip = lm[4];
                 const pinchDist = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
@@ -554,6 +579,9 @@
                         focusedPhotoIndex = -1;
                     }
                 }
+            } else {
+                isHandDetected = false;
+                document.getElementById('hand-rot').innerText = 'Rot: —';
             }
         }
 
@@ -589,9 +617,14 @@
                 scene.rotation.x += (0 - scene.rotation.x) * 0.05;
                 scene.rotation.z += (0 - scene.rotation.z) * 0.05;
             } else if (currentState === STATE.SCATTER) {
+                // 平滑手部原始旋转并将其映射到场景旋转
+                smoothedHandRotation += (rawHandRotation - smoothedHandRotation) * 0.12;
+                smoothedHandTilt += (rawHandTilt - smoothedHandTilt) * 0.12;
+
                 if (isHandDetected) {
-                    scene.rotation.y += (handPosition.x * 0.8 - scene.rotation.y) * 0.05;
-                    scene.rotation.x += (handPosition.y * 0.8 - scene.rotation.x) * 0.05;
+                    // 将掌面旋转映射为 Y 轴旋转（左右转），将倾斜映射为 X 轴（上下抬低）
+                    scene.rotation.y += (smoothedHandRotation - scene.rotation.y) * 0.09;
+                    scene.rotation.x += (smoothedHandTilt * 0.7 - scene.rotation.x) * 0.05;
                 } else {
                     scene.rotation.y += 0.001;
                 }
